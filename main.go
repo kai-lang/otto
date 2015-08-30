@@ -76,8 +76,37 @@ func (l *Lexer) Peek() (rune, error) {
 	return r, nil
 }
 
+// utility whitespace lex function
+func (l *Lexer) eatWs() {
+	r, _ := l.Peek()
+	for unicode.Is(unicode.White_Space, r) {
+		l.Next()
+		r, _ = l.Peek()
+	}
+	l.Emit() // dump
+}
+
+func varIdentState(l *Lexer) StateFunc {
+	r, _ := l.Peek()
+	for unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' {
+		l.Next()
+		r, _ = l.Peek()
+	}
+	l.tokens = append(l.tokens, &Token {
+		Type: IdentToken,
+		Payload: l.Emit(),
+		Line: l.Line,
+		Column: l.Column,
+	})
+	return nil
+}
+
 func varState(l *Lexer) StateFunc {
-	fmt.Println("var state!")
+	l.eatWs()
+	r, _ := l.Peek()
+	if unicode.IsLetter(r) || r == '_' {
+		return varIdentState
+	}
 	return nil
 }
 
@@ -101,6 +130,7 @@ func keywordState(l *Lexer) StateFunc {
 }
 
 func startState(l *Lexer) StateFunc {
+	l.eatWs()
 	r, _ := l.Peek()
 	if unicode.IsLetter(r) {
 		return keywordState
