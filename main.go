@@ -24,7 +24,6 @@ type Token struct {
 type StateFunc func (l *Lexer) StateFunc
 
 type Lexer struct {
-	// TODO: replace text/scanner with own scanner
 	Input *bufio.Reader
 	buffer string
 	lastRuneWidth int
