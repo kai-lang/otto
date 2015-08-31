@@ -379,9 +379,7 @@ func main() {
 	}
 	r.Init()
 	for t := r.NextToken(); t != nil; t = r.NextToken() {
-		if t.Type == ErrorToken {
-			fmt.Println(t.Payload)
-		}
+		fmt.Println(t)
 	}
 	fmt.Printf("\n")
 }
