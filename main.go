@@ -344,13 +344,7 @@ func (l *Lexer) NextToken() *Token {
 type Repl struct {
 	Input *bufio.Reader
 	Output *bufio.Writer
-	Prompt string
 	lexer *Lexer
-}
-
-func (r *Repl) prompt() {
-	defer r.Output.Flush()
-	fmt.Fprint(r.Output, r.Prompt)
 }
 
 func (r *Repl) Init() {
@@ -358,7 +352,6 @@ func (r *Repl) Init() {
 		State: startState,
 		Input: bufio.NewReader(r),
 	}
-	r.prompt()
 }
 
 func (r *Repl) Read(p []byte) (n int, err error) {
@@ -369,7 +362,6 @@ func (r *Repl) Read(p []byte) (n int, err error) {
 		}
 		p[i] = b
 		if b == '\n' {
-			r.prompt()
 			return i, nil
 		}
 	}
@@ -384,7 +376,6 @@ func main() {
 	r := Repl {
 		Input: bufio.NewReader(os.Stdin),
 		Output: bufio.NewWriter(os.Stdout),
-		Prompt: ">>> ",
 	}
 	r.Init()
 	for t := r.NextToken(); t != nil; t = r.NextToken() {
