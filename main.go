@@ -1,11 +1,11 @@
 package main
 
 import (
-	"os"
 	"bufio"
-	"unicode"
 	"fmt"
+	"os"
 	"strconv"
+	"unicode"
 )
 
 type TokenType int
@@ -21,30 +21,30 @@ const (
 type Keyword int
 
 const (
-	VarKeyword Keyword = iota // var
-	AssignKeyword // =
-	AddKeyword // +
-	SubKeyword // -
-	MulKeyword // *
-	ModKeyword // %
-	SemiColonKeyword // ;
+	VarKeyword       Keyword = iota // var
+	AssignKeyword                   // =
+	AddKeyword                      // +
+	SubKeyword                      // -
+	MulKeyword                      // *
+	ModKeyword                      // %
+	SemiColonKeyword                // ;
 )
 
 type Token struct {
-	Type TokenType
-	Payload interface{}
+	Type         TokenType
+	Payload      interface{}
 	Line, Column int
 }
 
-type StateFunc func (l *Lexer) StateFunc
+type StateFunc func(l *Lexer) StateFunc
 
 type Lexer struct {
-	Input *bufio.Reader
-	buffer string
+	Input         *bufio.Reader
+	buffer        string
 	lastRuneWidth int
-	Line, Column int
-	State StateFunc
-	Tokens chan *Token
+	Line, Column  int
+	State         StateFunc
+	Tokens        chan *Token
 }
 
 func (l *Lexer) Emit() string {
@@ -70,7 +70,7 @@ func (l *Lexer) Next() (rune, error) {
 	return r, nil
 }
 
-type RunePredicate func (rune) bool
+type RunePredicate func(rune) bool
 
 // Reads up to unaccepted rune
 func (l *Lexer) NextUpTo(pred RunePredicate) (r rune, err error) {
@@ -126,7 +126,7 @@ func (l *Lexer) Peek() (rune, error) {
 }
 
 func (l *Lexer) emitToken(t *Token) {
-	l.Tokens<- t
+	l.Tokens <- t
 }
 
 // utility whitespace lex function
@@ -194,19 +194,19 @@ func numberState(l *Lexer) StateFunc {
 	} else {
 		i, err := strconv.ParseInt(l.Emit(), base, 64)
 		if err != nil {
-			l.emitToken(&Token {
-				Type: ErrorToken,
+			l.emitToken(&Token{
+				Type:    ErrorToken,
 				Payload: fmt.Sprint(err),
-				Line: l.Line,
-				Column: l.Column,
+				Line:    l.Line,
+				Column:  l.Column,
 			})
 			return startState
 		}
-		l.emitToken(&Token {
-			Type: IntegerToken,
+		l.emitToken(&Token{
+			Type:    IntegerToken,
 			Payload: i,
-			Line: l.Line,
-			Column: l.Column,
+			Line:    l.Line,
+			Column:  l.Column,
 		})
 		return expressionState
 	}
@@ -236,29 +236,29 @@ func expressionState(l *Lexer) StateFunc {
 		case '%':
 			k = ModKeyword
 		}
-		l.emitToken(&Token {
-			Type: KeywordToken,
+		l.emitToken(&Token{
+			Type:    KeywordToken,
 			Payload: k,
-			Line: l.Line,
-			Column: l.Column,
+			Line:    l.Line,
+			Column:  l.Column,
 		})
 		return expressionState
 	case r == ';':
 		l.Next()
-		l.emitToken(&Token {
-			Type: KeywordToken,
+		l.emitToken(&Token{
+			Type:    KeywordToken,
 			Payload: SemiColonKeyword,
-			Line: l.Line,
-			Column: l.Column,
+			Line:    l.Line,
+			Column:  l.Column,
 		})
 		return startState
 	default:
 		l.Next()
-		l.Tokens<- (&Token {
-			Type: ErrorToken,
+		l.Tokens <- (&Token{
+			Type:    ErrorToken,
 			Payload: fmt.Sprintf("Unexpected rune '%c' in expression", r),
-			Line: l.Line,
-			Column: l.Column,
+			Line:    l.Line,
+			Column:  l.Column,
 		})
 		return startState
 	}
@@ -275,33 +275,33 @@ func assignExpressionState(l *Lexer) StateFunc {
 	}
 	if r != '=' {
 		// error, missing equals sign
-		l.emitToken(&Token {
-			Type: ErrorToken,
+		l.emitToken(&Token{
+			Type:    ErrorToken,
 			Payload: fmt.Sprintf("Expected '=', found %c\n", r),
-			Line: l.Line,
-			Column: l.Column,
+			Line:    l.Line,
+			Column:  l.Column,
 		})
 		return startState
 	} else {
-		l.emitToken(&Token {
-			Type: KeywordToken,
+		l.emitToken(&Token{
+			Type:    KeywordToken,
 			Payload: AssignKeyword,
-			Line: l.Line,
-			Column: l.Column,
+			Line:    l.Line,
+			Column:  l.Column,
 		})
 		return expressionState
 	}
 }
 
 func varIdentState(l *Lexer) StateFunc {
-	l.NextUpTo(func (r rune) bool {
+	l.NextUpTo(func(r rune) bool {
 		return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_'
 	})
-	l.emitToken(&Token {
-		Type: IdentToken,
+	l.emitToken(&Token{
+		Type:    IdentToken,
 		Payload: l.Emit(),
-		Line: l.Line,
-		Column: l.Column,
+		Line:    l.Line,
+		Column:  l.Column,
 	})
 	return assignExpressionState
 }
@@ -322,11 +322,11 @@ func varState(l *Lexer) StateFunc {
 
 func keywordState(l *Lexer) StateFunc {
 	l.NextUpTo(unicode.IsLetter)
-	l.emitToken(&Token {
-		Type: KeywordToken,
+	l.emitToken(&Token{
+		Type:    KeywordToken,
 		Payload: VarKeyword,
-		Line: l.Line,
-		Column: l.Column,
+		Line:    l.Line,
+		Column:  l.Column,
 	})
 	if l.Emit() == "var" {
 		return varState
@@ -352,9 +352,9 @@ func (l *Lexer) Run() {
 	for l.State != nil {
 		l.State = l.State(l)
 	}
-	l.emitToken(&Token {
-		Type: EOFToken,
-		Line: l.Line,
+	l.emitToken(&Token{
+		Type:   EOFToken,
+		Line:   l.Line,
 		Column: l.Column,
 	})
 	close(l.Tokens)
@@ -362,15 +362,15 @@ func (l *Lexer) Run() {
 
 // Prompting Reader
 type Repl struct {
-	Input *bufio.Reader
+	Input  *bufio.Reader
 	Output *bufio.Writer
-	lexer *Lexer
+	lexer  *Lexer
 }
 
 func (r *Repl) Init() chan *Token {
-	r.lexer = &Lexer {
-		State: startState,
-		Input: bufio.NewReader(r),
+	r.lexer = &Lexer{
+		State:  startState,
+		Input:  bufio.NewReader(r),
 		Tokens: make(chan *Token),
 	}
 	go r.lexer.Run()
@@ -392,15 +392,15 @@ func (r *Repl) Read(p []byte) (n int, err error) {
 }
 
 type SyntaxTree struct {
-	Tok *Token
+	Tok         *Token
 	Left, Right *SyntaxTree
 }
 
-type PStateFunc func (*Parser) PStateFunc
+type PStateFunc func(*Parser) PStateFunc
 
 type Parser struct {
 	Input chan *Token
-	root *SyntaxTree
+	root  *SyntaxTree
 	front []*SyntaxTree
 	State PStateFunc
 	trees chan *SyntaxTree
@@ -409,11 +409,11 @@ type Parser struct {
 func parseIdent(p *Parser) PStateFunc {
 	tok := <-p.Input
 	if tok.Type != IdentToken {
-		fmt.Printf("Expected ident, found %v.\n", tok);
+		fmt.Printf("Expected ident, found %v.\n", tok)
 		return nil
 	} else {
 		tr := p.front[len(p.front)-1]
-		tr.Right = &SyntaxTree {
+		tr.Right = &SyntaxTree{
 			Tok: tok,
 		}
 		return parseAssignment
@@ -422,13 +422,13 @@ func parseIdent(p *Parser) PStateFunc {
 
 func parseExpression(p *Parser) PStateFunc {
 	a := <-p.Input
-	s := &SyntaxTree {
+	s := &SyntaxTree{
 		Tok: a,
 	}
 	if a.Type == IntegerToken {
 		tr := p.front[len(p.front)-1]
 		if tr.Tok.Type != KeywordToken {
-			fmt.Printf("Expected operator, found %v.\n", a);
+			fmt.Printf("Expected operator, found %v.\n", a)
 			return nil
 		}
 		if tr.Left == nil {
@@ -449,7 +449,7 @@ func parseExpression(p *Parser) PStateFunc {
 		p.front = append(p.front, s)
 		return parseExpression
 	} else {
-		fmt.Printf("Expected expression, found %v.\n", a);
+		fmt.Printf("Expected expression, found %v.\n", a)
 		return nil
 	}
 }
@@ -470,16 +470,16 @@ func parseAssignment(p *Parser) PStateFunc {
 	if a.Type == KeywordToken && a.Payload == AssignKeyword {
 		return parseExpression
 	} else {
-		fmt.Printf("Expected assignment, found %v.\n", a);
+		fmt.Printf("Expected assignment, found %v.\n", a)
 		return nil
 	}
 }
 
 func parseKeyword(p *Parser) PStateFunc {
 	if p.root != nil {
-		p.trees<- p.root
+		p.trees <- p.root
 	}
-	t := &SyntaxTree {
+	t := &SyntaxTree{
 		Tok: <-p.Input,
 	}
 	if t.Tok.Type == KeywordToken {
@@ -514,11 +514,11 @@ func (t *SyntaxTree) String() string {
 }
 
 func main() {
-	r := Repl {
-		Input: bufio.NewReader(os.Stdin),
+	r := Repl{
+		Input:  bufio.NewReader(os.Stdin),
 		Output: bufio.NewWriter(os.Stdout),
 	}
-	p := Parser {
+	p := Parser{
 		Input: r.Init(),
 		State: parseKeyword,
 	}
