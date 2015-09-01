@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 	"unicode"
+	"strings"
 )
 
 type TokenType int
@@ -45,6 +46,40 @@ type Lexer struct {
 	Line, Column  int
 	State         StateFunc
 	Tokens        chan *Token
+}
+
+func (t *Token) String() string {
+	switch t.Type {
+	case ErrorToken:
+		return "err: "+t.Payload.(string)
+	case EOFToken:
+		return "EOF"
+	case KeywordToken:
+		switch (t.Payload.(Keyword)) {
+		case VarKeyword:
+			return "var"
+		case AssignKeyword:
+			return "="
+		case AddKeyword:
+			return "+"
+		case SubKeyword:
+			return "-"
+		case MulKeyword:
+			return "*"
+		case ModKeyword:
+			return "%"
+		case SemiColonKeyword:
+			return ";"
+		default:
+			return "unknown-keyword"
+		}
+	case IdentToken:
+		return t.Payload.(string)
+	case IntegerToken:
+		return fmt.Sprintf("%d", t.Payload)
+	default:
+		return "unknown"
+	}
 }
 
 func (l *Lexer) Emit() string {
@@ -192,7 +227,8 @@ func numberState(l *Lexer) StateFunc {
 		// floating point number
 		return floatState
 	} else {
-		i, err := strconv.ParseInt(l.Emit(), base, 64)
+		r := strings.NewReplacer("_", "")
+		i, err := strconv.ParseInt(r.Replace(l.Emit()), base, 64)
 		if err != nil {
 			l.emitToken(&Token{
 				Type:    ErrorToken,
@@ -413,56 +449,83 @@ func parseIdent(p *Parser) PStateFunc {
 		return nil
 	} else {
 		tr := p.front[len(p.front)-1]
-		tr.Right = &SyntaxTree{
+		tr.Left = &SyntaxTree{
 			Tok: tok,
 		}
 		return parseAssignment
 	}
 }
 
-func parseExpression(p *Parser) PStateFunc {
-	a := <-p.Input
-	s := &SyntaxTree{
-		Tok: a,
-	}
-	if a.Type == IntegerToken {
-		tr := p.front[len(p.front)-1]
-		if tr.Tok.Type != KeywordToken {
-			fmt.Printf("Expected operator, found %v.\n", a)
-			return nil
-		}
-		if tr.Left == nil {
-			tr.Left = s
-			return parseExpression
-		} else {
-			tr.Right = s
-			p.front = p.front[:len(p.front)-1]
-			return parseSemicolon
-		}
-	} else if a.Type == KeywordToken && (a.Payload == AddKeyword || a.Payload == SubKeyword || a.Payload == MulKeyword || a.Payload == ModKeyword) {
-		tr := p.front[len(p.front)-1]
-		if tr.Left == nil {
-			tr.Left = s
-		} else {
-			tr.Right = s
-		}
-		p.front = append(p.front, s)
-		return parseExpression
-	} else {
-		fmt.Printf("Expected expression, found %v.\n", a)
-		return nil
-	}
+var precedence = map[Keyword]int{
+	AddKeyword: 3,
+	SubKeyword: 3,
+	MulKeyword: 4,
+	ModKeyword: 4,
 }
 
-func parseSemicolon(p *Parser) PStateFunc {
-	a := <-p.Input
-	if a.Type == KeywordToken && a.Payload == SemiColonKeyword {
-		// semicolon completes expression
-		return parseKeyword
-	} else {
-		fmt.Printf("Expected semicolon, found %v.\n", a)
-		return nil
+const (
+	RightAssociative = iota
+	LeftAssociative
+)
+
+var associativity = map[Keyword]int{
+	AddKeyword: LeftAssociative,
+	SubKeyword: LeftAssociative,
+	MulKeyword: LeftAssociative,
+	ModKeyword: LeftAssociative,
+}
+
+func (p *Parser) shuntingYard() chan *Token {
+	var ops []*Token
+	out := make(chan *Token)
+	go func() {
+		for tok := range p.Input {
+			if tok.Type == IntegerToken {
+				out <- tok
+			} else if tok.Type == KeywordToken && (tok.Payload == AddKeyword || tok.Payload == SubKeyword || tok.Payload == MulKeyword || tok.Payload == ModKeyword) {
+				for len(ops) > 0 && ((associativity[tok.Payload.(Keyword)] == LeftAssociative && precedence[tok.Payload.(Keyword)] <= precedence[ops[len(ops)-1].Payload.(Keyword)]) || (associativity[tok.Payload.(Keyword)] == RightAssociative && precedence[tok.Payload.(Keyword)] < precedence[ops[len(ops)-1].Payload.(Keyword)])) {
+					op := ops[len(ops)-1]
+					ops = ops[:len(ops)-1]
+					out <- op
+				}
+				ops = append(ops, tok)
+			} else if tok.Type == KeywordToken && tok.Payload == SemiColonKeyword {
+				for len(ops) > 0 {
+					op := ops[len(ops)-1]
+					ops = ops[:len(ops)-1]
+					out <- op
+				}
+				break
+			}
+		}
+		close(out)
+	}()
+	return out
+}
+
+func parseExpression(p *Parser) PStateFunc {
+	var trees []*SyntaxTree
+	for a := range p.shuntingYard() {
+		s := &SyntaxTree{
+			Tok: a,
+		}
+		if a.Type == IntegerToken {
+			trees = append(trees, s)
+		} else if a.Type == KeywordToken && (a.Payload == AddKeyword || a.Payload == SubKeyword || a.Payload == MulKeyword || a.Payload == ModKeyword) {
+			if len(trees) >= 2 {
+				s.Right = trees[len(trees)-1]
+				s.Left = trees[len(trees)-2]
+				trees = trees[:len(trees)-2]
+				trees = append(trees, s)
+			} else {
+				// too many operators error
+				fmt.Printf("Extraneous operator %s.\n", a)
+				return nil
+			}
+		}
 	}
+	p.front[len(p.front)-1].Right = trees[len(trees)-1]
+	return parseKeyword
 }
 
 func parseAssignment(p *Parser) PStateFunc {
@@ -510,7 +573,11 @@ func (p *Parser) Run() {
 }
 
 func (t *SyntaxTree) String() string {
-	return fmt.Sprintf("{%v: %s, %s}", t.Tok, t.Right, t.Left)
+	if t.Left != nil && t.Right != nil {
+		return fmt.Sprintf("(%v %s %s)", t.Tok, t.Left, t.Right)
+	} else {
+		return fmt.Sprint(t.Tok)
+	}
 }
 
 func main() {
