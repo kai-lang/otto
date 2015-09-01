@@ -43,7 +43,7 @@ type Lexer struct {
 	lastRuneWidth int
 	Line, Column int
 	State StateFunc
-	tokens []*Token
+	Tokens chan *Token
 }
 
 func (l *Lexer) Emit() string {
@@ -107,6 +107,7 @@ func (l *Lexer) Back() error {
 	if err != nil {
 		return err
 	}
+	l.Column--
 	l.buffer = l.buffer[:len(l.buffer)-l.lastRuneWidth]
 	return nil
 }
@@ -124,7 +125,7 @@ func (l *Lexer) Peek() (rune, error) {
 }
 
 func (l *Lexer) emitToken(t *Token) {
-	l.tokens = append(l.tokens, t)
+	l.Tokens<- t
 }
 
 // utility whitespace lex function
@@ -222,7 +223,25 @@ func expressionState(l *Lexer) StateFunc {
 	case unicode.IsDigit(r):
 		return numberState
 	case r == '+' || r == '-' || r == '*' || r == '%':
-		return nil
+		l.Next()
+		var k Keyword
+		switch r {
+		case '+':
+			k = AddKeyword
+		case '-':
+			k = SubKeyword
+		case '*':
+			k = MulKeyword
+		case '%':
+			k = ModKeyword
+		}
+		l.emitToken(&Token {
+			Type: KeywordToken,
+			Payload: k,
+			Line: l.Line,
+			Column: l.Column,
+		})
+		return expressionState
 	case r == ';':
 		l.Next()
 		l.emitToken(&Token {
@@ -234,7 +253,7 @@ func expressionState(l *Lexer) StateFunc {
 		return startState
 	default:
 		l.Next()
-		l.emitToken(&Token {
+		l.Tokens<- (&Token {
 			Type: ErrorToken,
 			Payload: fmt.Sprintf("Unexpected rune '%c' in expression", r),
 			Line: l.Line,
@@ -328,16 +347,11 @@ func startState(l *Lexer) StateFunc {
 	return nil
 }
 
-func (l *Lexer) NextToken() *Token {
+func (l *Lexer) Run() {
 	for l.State != nil {
 		l.State = l.State(l)
-		if len(l.tokens) > 0 {
-			t := l.tokens[len(l.tokens)-1]
-			l.tokens = l.tokens[:len(l.tokens)-1]
-			return t
-		}
 	}
-	return nil
+	close(l.Tokens)
 }
 
 // Prompting Reader
@@ -347,11 +361,14 @@ type Repl struct {
 	lexer *Lexer
 }
 
-func (r *Repl) Init() {
+func (r *Repl) Init() chan *Token {
 	r.lexer = &Lexer {
 		State: startState,
 		Input: bufio.NewReader(r),
+		Tokens: make(chan *Token),
 	}
+	go r.lexer.Run()
+	return r.lexer.Tokens
 }
 
 func (r *Repl) Read(p []byte) (n int, err error) {
@@ -368,8 +385,24 @@ func (r *Repl) Read(p []byte) (n int, err error) {
 	return len(p), nil
 }
 
-func (r *Repl) NextToken() *Token {
-	return r.lexer.NextToken()
+type SyntaxTree struct {
+	Tok Token
+	Left, Right *SyntaxTree
+}
+
+type Parser struct {
+	Input chan *Token
+	tree SyntaxTree
+}
+
+func (p *Parser) Run() {
+	for t := range p.Input {
+		if t.Type == ErrorToken {
+			fmt.Printf("%d:%d->err: %s\n", t.Line, t.Column, t.Payload)
+		} else {
+			fmt.Printf("%d:%d->tok: %v\n", t.Line, t.Column, t.Payload)
+		}
+	}
 }
 
 func main() {
@@ -377,9 +410,8 @@ func main() {
 		Input: bufio.NewReader(os.Stdin),
 		Output: bufio.NewWriter(os.Stdout),
 	}
-	r.Init()
-	for t := r.NextToken(); t != nil; t = r.NextToken() {
-		fmt.Println(t)
+	p := Parser {
+		Input: r.Init(),
 	}
-	fmt.Printf("\n")
+	p.Run()
 }
