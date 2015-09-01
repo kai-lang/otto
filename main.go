@@ -386,23 +386,62 @@ func (r *Repl) Read(p []byte) (n int, err error) {
 }
 
 type SyntaxTree struct {
-	Tok Token
+	Tok *Token
 	Left, Right *SyntaxTree
 }
 
+// recursive descent parser
+// TODO: make a state machine with each
+// state returning two subsequent states,
+// one for each child.
 type Parser struct {
 	Input chan *Token
-	tree SyntaxTree
+	tree *SyntaxTree
+}
+
+func (p *Parser) parseIdent() *SyntaxTree {
+	tok := <-p.Input
+	if tok.Type != IdentToken {
+		fmt.Printf("Expected ident, not found!\n");
+	}
+	return &SyntaxTree {
+		Tok: tok,
+	}
+}
+
+func (p *Parser) parseExpression() *SyntaxTree {
+	return nil
+}
+
+func (p *Parser) parseAssignment() {
+	a := <-p.Input
+	if a.Type != KeywordToken || a.Payload != AssignKeyword {
+		fmt.Printf("Expected assignment, '=' not found!\n");
+	}
+}
+
+func (p *Parser) parseKeyword() *SyntaxTree {
+	t := new(SyntaxTree)
+	t.Tok = <-p.Input
+	if t.Tok.Type == KeywordToken {
+		if t.Tok.Payload == VarKeyword {
+			t.Right = p.parseIdent()
+			p.parseAssignment()
+			t.Left = p.parseExpression()
+			return t
+		}
+	} else {
+		fmt.Printf("Expected keyword, not found!\n");
+	}
+	return nil
 }
 
 func (p *Parser) Run() {
-	for t := range p.Input {
-		if t.Type == ErrorToken {
-			fmt.Printf("%d:%d->err: %s\n", t.Line, t.Column, t.Payload)
-		} else {
-			fmt.Printf("%d:%d->tok: %v\n", t.Line, t.Column, t.Payload)
-		}
-	}
+	p.tree = p.parseKeyword()
+}
+
+func (t *SyntaxTree) String() string {
+	return fmt.Sprintf("{%v: %s, %s}", t.Tok, t.Right, t.Left)
 }
 
 func main() {
@@ -414,4 +453,5 @@ func main() {
 		Input: r.Init(),
 	}
 	p.Run()
+	fmt.Println(p.tree)
 }
