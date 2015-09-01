@@ -402,7 +402,7 @@ type Parser struct {
 func (p *Parser) parseIdent() *SyntaxTree {
 	tok := <-p.Input
 	if tok.Type != IdentToken {
-		fmt.Printf("Expected ident, not found!\n");
+		fmt.Printf("Expected ident, found %v.\n", tok);
 	}
 	return &SyntaxTree {
 		Tok: tok,
@@ -421,7 +421,7 @@ func (p *Parser) parseExpression() *SyntaxTree {
 		s.Left = p.parseExpression()
 		return s
 	} else {
-		fmt.Printf("Expected expression, not found!\n");
+		fmt.Printf("Expected expression, found %v.\n", a);
 		return nil
 	}
 }
@@ -429,7 +429,14 @@ func (p *Parser) parseExpression() *SyntaxTree {
 func (p *Parser) parseAssignment() {
 	a := <-p.Input
 	if a.Type != KeywordToken || a.Payload != AssignKeyword {
-		fmt.Printf("Expected assignment, '=' not found!\n");
+		fmt.Printf("Expected assignment, found %v.\n", a);
+	}
+}
+
+func (p *Parser) parseSemiColon() {
+	a := <-p.Input
+	if a.Type != KeywordToken || a.Payload != SemiColonKeyword {
+		fmt.Printf("Expected semicolon, found %v.\n", a)
 	}
 }
 
@@ -441,10 +448,11 @@ func (p *Parser) parseKeyword() *SyntaxTree {
 			t.Right = p.parseIdent()
 			p.parseAssignment()
 			t.Left = p.parseExpression()
+			p.parseSemiColon()
 			return t
 		}
 	} else {
-		fmt.Printf("Expected keyword, not found!\n");
+		fmt.Printf("Expected keyword, found %v.\n", t.Tok);
 	}
 	return nil
 }
