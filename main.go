@@ -12,6 +12,7 @@ type TokenType int
 
 const (
 	ErrorToken TokenType = iota
+	EOFToken
 	KeywordToken
 	IdentToken
 	IntegerToken
@@ -351,6 +352,11 @@ func (l *Lexer) Run() {
 	for l.State != nil {
 		l.State = l.State(l)
 	}
+	l.emitToken(&Token {
+		Type: EOFToken,
+		Line: l.Line,
+		Column: l.Column,
+	})
 	close(l.Tokens)
 }
 
@@ -390,75 +396,121 @@ type SyntaxTree struct {
 	Left, Right *SyntaxTree
 }
 
+type PStateFunc func (*Parser) PStateFunc
+
 // recursive descent parser
 // TODO: make a state machine with each
 // state returning two subsequent states,
 // one for each child.
 type Parser struct {
 	Input chan *Token
-	tree *SyntaxTree
+	root *SyntaxTree
+	front []*SyntaxTree
+	State PStateFunc
+	trees chan *SyntaxTree
 }
 
-func (p *Parser) parseIdent() *SyntaxTree {
+func parseIdent(p *Parser) PStateFunc {
 	tok := <-p.Input
 	if tok.Type != IdentToken {
 		fmt.Printf("Expected ident, found %v.\n", tok);
-	}
-	return &SyntaxTree {
-		Tok: tok,
+		return nil
+	} else {
+		tr := p.front[len(p.front)-1]
+		tr.Right = &SyntaxTree {
+			Tok: tok,
+		}
+		return parseAssignment
 	}
 }
 
-func (p *Parser) parseExpression() *SyntaxTree {
+func parseExpression(p *Parser) PStateFunc {
 	a := <-p.Input
 	s := &SyntaxTree {
 		Tok: a,
 	}
 	if a.Type == IntegerToken {
-		return s
+		tr := p.front[len(p.front)-1]
+		if tr.Tok.Type != KeywordToken {
+			fmt.Printf("Expected operator, found %v.\n", a);
+			return nil
+		}
+		if tr.Left == nil {
+			tr.Left = s
+			return parseExpression
+		} else {
+			tr.Right = s
+			p.front = p.front[:len(p.front)-1]
+			return parseSemicolon
+		}
 	} else if a.Type == KeywordToken && (a.Payload == AddKeyword || a.Payload == SubKeyword || a.Payload == MulKeyword || a.Payload == ModKeyword) {
-		s.Right = p.parseExpression()
-		s.Left = p.parseExpression()
-		return s
+		tr := p.front[len(p.front)-1]
+		if tr.Left == nil {
+			tr.Left = s
+		} else {
+			tr.Right = s
+		}
+		p.front = append(p.front, s)
+		return parseExpression
 	} else {
 		fmt.Printf("Expected expression, found %v.\n", a);
 		return nil
 	}
 }
 
-func (p *Parser) parseAssignment() {
+func parseSemicolon(p *Parser) PStateFunc {
 	a := <-p.Input
-	if a.Type != KeywordToken || a.Payload != AssignKeyword {
-		fmt.Printf("Expected assignment, found %v.\n", a);
-	}
-}
-
-func (p *Parser) parseSemiColon() {
-	a := <-p.Input
-	if a.Type != KeywordToken || a.Payload != SemiColonKeyword {
+	if a.Type == KeywordToken && a.Payload == SemiColonKeyword {
+		// semicolon completes expression
+		return parseKeyword
+	} else {
 		fmt.Printf("Expected semicolon, found %v.\n", a)
+		return nil
 	}
 }
 
-func (p *Parser) parseKeyword() *SyntaxTree {
-	t := new(SyntaxTree)
-	t.Tok = <-p.Input
+func parseAssignment(p *Parser) PStateFunc {
+	a := <-p.Input
+	if a.Type == KeywordToken && a.Payload == AssignKeyword {
+		return parseExpression
+	} else {
+		fmt.Printf("Expected assignment, found %v.\n", a);
+		return nil
+	}
+}
+
+func parseKeyword(p *Parser) PStateFunc {
+	if p.root != nil {
+		p.trees<- p.root
+	}
+	t := &SyntaxTree {
+		Tok: <-p.Input,
+	}
 	if t.Tok.Type == KeywordToken {
 		if t.Tok.Payload == VarKeyword {
-			t.Right = p.parseIdent()
-			p.parseAssignment()
-			t.Left = p.parseExpression()
-			p.parseSemiColon()
-			return t
+			p.root = t
+			p.front = append(p.front, p.root)
+			return parseIdent
+		} else {
+			fmt.Printf("Expected keyword, found unknown keyword '%s'.\n", t.Tok.Payload)
+			return nil
 		}
+	} else if t.Tok.Type == EOFToken {
+		return nil
 	} else {
-		fmt.Printf("Expected keyword, found %v.\n", t.Tok);
+		fmt.Printf("Expected keyword, found %v.\n", t.Tok)
+		return nil
 	}
-	return nil
 }
 
 func (p *Parser) Run() {
-	p.tree = p.parseKeyword()
+	p.trees = make(chan *SyntaxTree)
+	go func() {
+		for p.State != nil {
+			p.State = p.State(p)
+		}
+		close(p.trees)
+	}()
 }
 
 func (t *SyntaxTree) String() string {
@@ -472,7 +524,10 @@ func main() {
 	}
 	p := Parser {
 		Input: r.Init(),
+		State: parseKeyword,
 	}
 	p.Run()
-	fmt.Println(p.tree)
+	for t := range p.trees {
+		fmt.Println(t)
+	}
 }
