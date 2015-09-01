@@ -410,7 +410,20 @@ func (p *Parser) parseIdent() *SyntaxTree {
 }
 
 func (p *Parser) parseExpression() *SyntaxTree {
-	return nil
+	a := <-p.Input
+	s := &SyntaxTree {
+		Tok: a,
+	}
+	if a.Type == IntegerToken {
+		return s
+	} else if a.Type == KeywordToken && (a.Payload == AddKeyword || a.Payload == SubKeyword || a.Payload == MulKeyword || a.Payload == ModKeyword) {
+		s.Right = p.parseExpression()
+		s.Left = p.parseExpression()
+		return s
+	} else {
+		fmt.Printf("Expected expression, not found!\n");
+		return nil
+	}
 }
 
 func (p *Parser) parseAssignment() {
