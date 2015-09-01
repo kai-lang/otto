@@ -398,10 +398,6 @@ type SyntaxTree struct {
 
 type PStateFunc func (*Parser) PStateFunc
 
-// recursive descent parser
-// TODO: make a state machine with each
-// state returning two subsequent states,
-// one for each child.
 type Parser struct {
 	Input chan *Token
 	root *SyntaxTree
