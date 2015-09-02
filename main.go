@@ -50,6 +50,7 @@ const (
 	LeftBraceOperator             // {
 	RightBraceOperator            // }
 	SemicolonOperator             // ;
+	NotOperator // !
 	endOperators
 )
 
@@ -66,6 +67,7 @@ var operators = map[Operator]string{
 	LeftBraceOperator:    "{",
 	RightBraceOperator:   "}",
 	SemicolonOperator:    ";",
+	NotOperator: "!",
 }
 
 type Token struct {
@@ -486,6 +488,7 @@ var associativity = map[Operator]int{
 	SubOperator: LeftAssociative,
 	MulOperator: LeftAssociative,
 	ModOperator: LeftAssociative,
+	DivOperator: LeftAssociative,
 }
 
 func (p *Parser) shuntingYard() chan *Token {
