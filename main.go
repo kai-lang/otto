@@ -90,7 +90,7 @@ type Lexer struct {
 func (t *Token) String() string {
 	switch t.Type {
 	case ErrorToken:
-		return "err: " + t.Payload.(string)
+		return fmt.Sprintf("err@%d:%d->%s", t.Line, t.Column, t.Payload)
 	case EOFToken:
 		return "EOF"
 	case KeywordToken:
@@ -327,7 +327,7 @@ func assignExpressionState(l *Lexer) StateFunc {
 		// error, missing equals sign
 		l.emitToken(&Token{
 			Type:    ErrorToken,
-			Payload: fmt.Sprintf("Expected '=', found %c\n", r),
+			Payload: fmt.Sprintf("Expected '=', found %c", r),
 			Line:    l.Line,
 			Column:  l.Column,
 		})
@@ -459,7 +459,12 @@ type Parser struct {
 func parseIdent(p *Parser) PStateFunc {
 	tok := <-p.Input
 	if tok.Type != IdentToken {
-		fmt.Printf("Expected ident, found %v.\n", tok)
+		fmt.Println(&Token{
+			Type: ErrorToken,
+			Payload: fmt.Sprintf("Expected ident, found %v", tok),
+			Line: tok.Line,
+			Column: tok.Column,
+		})
 		return nil
 	} else {
 		tr := p.front[len(p.front)-1]
@@ -512,7 +517,12 @@ func (p *Parser) shuntingYard() chan *Token {
 						}
 					}
 					if !success {
-						fmt.Printf("Unmatched parenthesis.\n")
+						fmt.Println(&Token{
+							Type: ErrorToken,
+							Payload: "Unmatched parenthesis",
+							Line: tok.Line,
+							Column: tok.Column,
+						})
 					}
 				} else if tok.Payload == SemicolonOperator {
 					for len(ops) > 0 {
@@ -554,12 +564,21 @@ func parseExpression(p *Parser) PStateFunc {
 				trees = append(trees, s)
 			} else {
 				// too many operators error
-				fmt.Printf("Extraneous operator %s.\n", a)
+				fmt.Println(&Token{
+					Type: ErrorToken,
+					Payload: fmt.Sprintf("Extraneous operator %s", a),
+					Line: a.Line,
+					Column: a.Column,
+				})
 				return nil
 			}
 		}
 	}
-	p.front[len(p.front)-1].Right = trees[len(trees)-1]
+	if len(trees) > 0 {
+		p.front[len(p.front)-1].Right = trees[len(trees)-1]
+	} else {
+
+	}
 	return parseKeyword
 }
 
@@ -568,7 +587,12 @@ func parseAssignment(p *Parser) PStateFunc {
 	if a.Type == KeywordToken && a.Payload == AssignKeyword {
 		return parseExpression
 	} else {
-		fmt.Printf("Expected assignment, found %v.\n", a)
+		fmt.Println(&Token{
+			Type: ErrorToken,
+			Payload: fmt.Sprintf("Expected assignment, found %s", a),
+			Line: a.Line,
+			Column: a.Column,
+		})
 		return nil
 	}
 }
@@ -586,13 +610,13 @@ func parseKeyword(p *Parser) PStateFunc {
 			p.front = append(p.front, p.root)
 			return parseIdent
 		} else {
-			fmt.Printf("Expected keyword, found unknown keyword '%s'.\n", t.Tok.Payload)
+			fmt.Printf("%d:%d->Expected keyword, found unknown keyword '%s'.\n", t.Tok.Line, t.Tok.Column, t.Tok.Payload)
 			return nil
 		}
 	} else if t.Tok.Type == EOFToken {
 		return nil
 	} else {
-		fmt.Printf("Expected keyword, found %v.\n", t.Tok)
+		fmt.Printf("%d:%d->Expected keyword, found %v.\n", t.Tok.Line, t.Tok.Column, t.Tok)
 		return nil
 	}
 }
