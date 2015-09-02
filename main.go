@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-	"unicode"
 	"strings"
+	"unicode"
 )
 
 type TokenType int
@@ -15,6 +15,7 @@ const (
 	ErrorToken TokenType = iota
 	EOFToken
 	KeywordToken
+	OperatorToken
 	IdentToken
 	IntegerToken
 )
@@ -22,14 +23,50 @@ const (
 type Keyword int
 
 const (
-	VarKeyword       Keyword = iota // var
-	AssignKeyword                   // =
-	AddKeyword                      // +
-	SubKeyword                      // -
-	MulKeyword                      // *
-	ModKeyword                      // %
-	SemiColonKeyword                // ;
+	beginKeywords Keyword = iota
+	VarKeyword            // var
+	AssignKeyword         // =
+	endKeywords
 )
+
+var keywords = map[Keyword]string{
+	VarKeyword:       "var",
+	AssignKeyword:    "=",
+}
+
+type Operator int
+
+const (
+	beginOperators       Operator = iota
+	AddOperator                   // +
+	SubOperator                   // -
+	MulOperator                   // *
+	ModOperator                   // %
+	DivOperator                   // /
+	LeftParenOperator             // (
+	RightParenOperator            // )
+	LeftBracketOperator           // [
+	RightBracketOperator          // ]
+	LeftBraceOperator             // {
+	RightBraceOperator            // }
+	SemicolonOperator             // ;
+	endOperators
+)
+
+var operators = map[Operator]string{
+	AddOperator:          "+",
+	SubOperator:          "-",
+	MulOperator:          "*",
+	ModOperator:          "%",
+	DivOperator:          "/",
+	LeftParenOperator:    "(",
+	RightParenOperator:   ")",
+	LeftBracketOperator:  "[",
+	RightBracketOperator: "]",
+	LeftBraceOperator:    "{",
+	RightBraceOperator:   "}",
+	SemicolonOperator:    ";",
+}
 
 type Token struct {
 	Type         TokenType
@@ -51,28 +88,13 @@ type Lexer struct {
 func (t *Token) String() string {
 	switch t.Type {
 	case ErrorToken:
-		return "err: "+t.Payload.(string)
+		return "err: " + t.Payload.(string)
 	case EOFToken:
 		return "EOF"
 	case KeywordToken:
-		switch (t.Payload.(Keyword)) {
-		case VarKeyword:
-			return "var"
-		case AssignKeyword:
-			return "="
-		case AddKeyword:
-			return "+"
-		case SubKeyword:
-			return "-"
-		case MulKeyword:
-			return "*"
-		case ModKeyword:
-			return "%"
-		case SemiColonKeyword:
-			return ";"
-		default:
-			return "unknown-keyword"
-		}
+		return keywords[t.Payload.(Keyword)]
+	case OperatorToken:
+		return operators[t.Payload.(Operator)]
 	case IdentToken:
 		return t.Payload.(string)
 	case IntegerToken:
@@ -259,44 +281,34 @@ func expressionState(l *Lexer) StateFunc {
 	switch {
 	case unicode.IsDigit(r):
 		return numberState
-	case r == '+' || r == '-' || r == '*' || r == '%':
-		l.Next()
-		var k Keyword
-		switch r {
-		case '+':
-			k = AddKeyword
-		case '-':
-			k = SubKeyword
-		case '*':
-			k = MulKeyword
-		case '%':
-			k = ModKeyword
-		}
-		l.emitToken(&Token{
-			Type:    KeywordToken,
-			Payload: k,
-			Line:    l.Line,
-			Column:  l.Column,
-		})
-		return expressionState
-	case r == ';':
-		l.Next()
-		l.emitToken(&Token{
-			Type:    KeywordToken,
-			Payload: SemiColonKeyword,
-			Line:    l.Line,
-			Column:  l.Column,
-		})
-		return startState
 	default:
 		l.Next()
-		l.Tokens <- (&Token{
-			Type:    ErrorToken,
-			Payload: fmt.Sprintf("Unexpected rune '%c' in expression", r),
-			Line:    l.Line,
-			Column:  l.Column,
-		})
-		return startState
+		t := &Token{
+			Type:   OperatorToken,
+			Line:   l.Line,
+			Column: l.Column,
+		}
+		for k, o := range operators {
+			if string(r) == o {
+				t.Payload = k
+			}
+		}
+		if t.Payload == nil {
+			l.emitToken(&Token{
+				Type:    ErrorToken,
+				Payload: fmt.Sprintf("Unknown operator '%c'", r),
+				Line:    l.Line,
+				Column:  l.Column,
+			})
+			return nil
+		} else {
+			l.emitToken(t)
+			if t.Payload == SemicolonOperator {
+				return startState
+			} else {
+				return expressionState
+			}
+		}
 	}
 }
 
@@ -456,11 +468,12 @@ func parseIdent(p *Parser) PStateFunc {
 	}
 }
 
-var precedence = map[Keyword]int{
-	AddKeyword: 3,
-	SubKeyword: 3,
-	MulKeyword: 4,
-	ModKeyword: 4,
+var precedence = map[Operator]int{
+	AddOperator: 3,
+	SubOperator: 3,
+	MulOperator: 4,
+	ModOperator: 4,
+	DivOperator: 4,
 }
 
 const (
@@ -468,11 +481,11 @@ const (
 	LeftAssociative
 )
 
-var associativity = map[Keyword]int{
-	AddKeyword: LeftAssociative,
-	SubKeyword: LeftAssociative,
-	MulKeyword: LeftAssociative,
-	ModKeyword: LeftAssociative,
+var associativity = map[Operator]int{
+	AddOperator: LeftAssociative,
+	SubOperator: LeftAssociative,
+	MulOperator: LeftAssociative,
+	ModOperator: LeftAssociative,
 }
 
 func (p *Parser) shuntingYard() chan *Token {
@@ -482,20 +495,39 @@ func (p *Parser) shuntingYard() chan *Token {
 		for tok := range p.Input {
 			if tok.Type == IntegerToken {
 				out <- tok
-			} else if tok.Type == KeywordToken && (tok.Payload == AddKeyword || tok.Payload == SubKeyword || tok.Payload == MulKeyword || tok.Payload == ModKeyword) {
-				for len(ops) > 0 && ((associativity[tok.Payload.(Keyword)] == LeftAssociative && precedence[tok.Payload.(Keyword)] <= precedence[ops[len(ops)-1].Payload.(Keyword)]) || (associativity[tok.Payload.(Keyword)] == RightAssociative && precedence[tok.Payload.(Keyword)] < precedence[ops[len(ops)-1].Payload.(Keyword)])) {
-					op := ops[len(ops)-1]
-					ops = ops[:len(ops)-1]
-					out <- op
+			} else if tok.Type == OperatorToken {
+				if tok.Payload == RightParenOperator {
+					success := false
+					for len(ops) > 0 {
+						op := ops[len(ops)-1]
+						if op.Payload == LeftParenOperator {
+							success = true
+							break
+						} else {
+							ops = ops[:len(ops)-1]
+							out <- op
+						}
+					}
+					if !success {
+						fmt.Printf("Unmatched parenthesis.\n")
+					}
+				} else if tok.Payload == SemicolonOperator {
+					for len(ops) > 0 {
+						op := ops[len(ops)-1]
+						ops = ops[:len(ops)-1]
+						if op.Payload != LeftParenOperator {
+							out <- op
+						}
+					}
+					break
+				} else {
+					for len(ops) > 0 && ((associativity[tok.Payload.(Operator)] == LeftAssociative && precedence[tok.Payload.(Operator)] <= precedence[ops[len(ops)-1].Payload.(Operator)]) || (associativity[tok.Payload.(Operator)] == RightAssociative && precedence[tok.Payload.(Operator)] < precedence[ops[len(ops)-1].Payload.(Operator)])) {
+						op := ops[len(ops)-1]
+						ops = ops[:len(ops)-1]
+						out <- op
+					}
+					ops = append(ops, tok)
 				}
-				ops = append(ops, tok)
-			} else if tok.Type == KeywordToken && tok.Payload == SemiColonKeyword {
-				for len(ops) > 0 {
-					op := ops[len(ops)-1]
-					ops = ops[:len(ops)-1]
-					out <- op
-				}
-				break
 			}
 		}
 		close(out)
@@ -511,7 +543,7 @@ func parseExpression(p *Parser) PStateFunc {
 		}
 		if a.Type == IntegerToken {
 			trees = append(trees, s)
-		} else if a.Type == KeywordToken && (a.Payload == AddKeyword || a.Payload == SubKeyword || a.Payload == MulKeyword || a.Payload == ModKeyword) {
+		} else if a.Type == OperatorToken {
 			if len(trees) >= 2 {
 				s.Right = trees[len(trees)-1]
 				s.Left = trees[len(trees)-2]
